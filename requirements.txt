@@ -3,6 +3,8 @@ faster-whisper
 av<16
 # Diarización (identificar quién habla), en CPU
 sherpa-onnx
+# Verificación de certificados con el sistema operativo al descargar los modelos de diarización
+truststore
 # Librerías CUDA para usar la GPU NVIDIA (si no hay GPU, el programa usa la CPU)
 nvidia-cublas-cu12
 nvidia-cudnn-cu12==9.*

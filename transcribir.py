@@ -9,6 +9,8 @@ Uso:
 
 import argparse
 import os
+import shutil
+import ssl
 import sys
 import tarfile
 import time
@@ -86,10 +88,20 @@ def transcribir(audio, modelo: str, dispositivo: str) -> list[tuple[float, float
 # --------------------------------------------------------------------------- diarización
 
 def descargar(url: str, destino: Path) -> Path:
+    # truststore verifica los certificados con el sistema operativo (en Windows, el ssl de Python
+    # puede fallar con "unable to get issuer certificate" si falta un certificado raíz en el almacén).
+    import truststore
+
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_name(destino.name + ".part")
     print(f"Descargando {destino.name}...")
-    urllib.request.urlretrieve(url, temporal)
+    contexto = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    try:
+        with urllib.request.urlopen(url, context=contexto) as respuesta, open(temporal, "wb") as archivo:
+            shutil.copyfileobj(respuesta, archivo)
+    except BaseException:
+        temporal.unlink(missing_ok=True)
+        raise
     temporal.replace(destino)
     return destino
 

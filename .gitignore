@@ -1,2 +1,21 @@
-.venv
-__pycache__
+# Entorno virtual de Python
+.venv/
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+
+# Modelos de diarización (se descargan solos la primera vez)
+modelos/
+*.part
+
+# Vídeos de entrada (audio.mp4) y transcripciones generadas (audio.txt)
+*.mp4
+*.txt
+!requirements.txt
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
