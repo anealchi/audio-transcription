@@ -5,7 +5,7 @@ Uso:
     python transcribir.py
     python transcribir.py --hablantes 2 --nombres "Ana,Luis"
     python transcribir.py -o salida.txt --modelo medium --cpu
-    python transcribir.py --rapido
+    python transcribir.py --preciso
 
 Para usarlo desde el navegador, ejecuta 'python servidor.py'.
 """
@@ -25,10 +25,11 @@ from typing import NamedTuple
 
 MODELOS = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo")
 MODELO_POR_DEFECTO = "large-v3-turbo"
-# Candidatos que Whisper explora en paralelo: más = algo más preciso pero
-# más lento; 1 = búsqueda simple (opción --rapido)
-BEAM_POR_DEFECTO = 5
-BEAM_RAPIDO = 1
+# Candidatos que Whisper explora en paralelo. Por defecto, búsqueda simple
+# (1): en las pruebas en CPU fue un 17 % más rápida que explorar 5 y dio el
+# mismo texto. La opción --preciso vuelve a explorar 5.
+BEAM_POR_DEFECTO = 1
+BEAM_PRECISO = 5
 RAIZ_PROYECTO = Path(__file__).resolve().parent
 ARCHIVO_ENTRADA = RAIZ_PROYECTO / "audio.mp4"
 FRECUENCIA_MUESTREO = 16000
@@ -36,6 +37,9 @@ PUNTOS_ONDA = 1200  # picos de la forma de onda que dibuja la interfaz web
 
 # Modelos de diarización (quién habla), de las releases oficiales de
 # sherpa-onnx. "recongition" es la errata real de la URL: no corregirla.
+# Embeddings: CAM++ entrenado con VoxCeleb. En las pruebas fue unas 2,3
+# veces más rápido que ERes2Net (entrenado con hablantes chinos), que
+# además partía en 3 hablantes un audio de una sola persona.
 CARPETA_MODELOS = RAIZ_PROYECTO / "modelos"
 RELEASES_SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
 URL_SEGMENTACION = (RELEASES_SHERPA + "speaker-segmentation-models/"
@@ -43,8 +47,7 @@ URL_SEGMENTACION = (RELEASES_SHERPA + "speaker-segmentation-models/"
 MODELO_SEGMENTACION = (CARPETA_MODELOS
                        / "sherpa-onnx-pyannote-segmentation-3-0"
                        / "model.onnx")
-NOMBRE_EMBEDDINGS = ("3dspeaker_speech_eres2net_base_sv_zh-cn_"
-                     "3dspeaker_16k.onnx")
+NOMBRE_EMBEDDINGS = "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx"
 URL_EMBEDDINGS = (RELEASES_SHERPA + "speaker-recongition-models/"
                   + NOMBRE_EMBEDDINGS)
 MODELO_EMBEDDINGS = CARPETA_MODELOS / NOMBRE_EMBEDDINGS
@@ -319,7 +322,7 @@ def formatear_lineas(intervenciones: list[Intervencion],
 # ----------------------------------------------------------------- programa
 
 def ejecutar(entrada: Path, modelo: str = MODELO_POR_DEFECTO,
-             cpu: bool = False, rapido: bool = False,
+             cpu: bool = False, preciso: bool = False,
              hablantes: int | None = None,
              avisar: Avisar = avisar_consola,
              al_leer_audio: Callable[[list[float], float], None] | None = None,
@@ -334,7 +337,7 @@ def ejecutar(entrada: Path, modelo: str = MODELO_POR_DEFECTO,
         if not usar_gpu:
             avisar("preparacion",
                    "No se ha detectado una GPU NVIDIA: se usará la CPU.", None)
-    beam = BEAM_RAPIDO if rapido else BEAM_POR_DEFECTO
+    beam = BEAM_PRECISO if preciso else BEAM_POR_DEFECTO
 
     from faster_whisper import decode_audio
 
@@ -374,9 +377,10 @@ def main() -> int:
              f"(por defecto {MODELO_POR_DEFECTO})")
     parser.add_argument("--cpu", action="store_true",
                         help="Forzar el uso de CPU en lugar de la GPU")
-    parser.add_argument("--rapido", action="store_true",
-                        help="Transcripción más rápida y algo menos precisa "
-                             f"(beam_size={BEAM_RAPIDO} en lugar de "
+    parser.add_argument("--preciso", action="store_true",
+                        help="Explorar más candidatos al transcribir: más "
+                             "lento y a veces algo más preciso "
+                             f"(beam_size={BEAM_PRECISO} en lugar de "
                              f"{BEAM_POR_DEFECTO})")
     parser.add_argument("--hablantes", type=int,
                         help="Número de personas que hablan, si se conoce "
@@ -399,7 +403,7 @@ def main() -> int:
     salida: Path = args.salida or entrada.with_suffix(".txt")
 
     inicio = time.perf_counter()
-    intervenciones = ejecutar(entrada, args.modelo, args.cpu, args.rapido,
+    intervenciones = ejecutar(entrada, args.modelo, args.cpu, args.preciso,
                               args.hablantes)
     lineas = formatear_lineas(intervenciones, nombres)
 

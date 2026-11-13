@@ -20,7 +20,7 @@ pip install -r requirements.txt
 python transcribir.py                                  # GPU si la hay; si no, CPU
 python transcribir.py --hablantes 2 --nombres "Ana,Luis"
 python transcribir.py -o salida.txt --modelo medium --cpu
-python transcribir.py --rapido                         # beam_size=1 en lugar de 5
+python transcribir.py --preciso                        # beam_size=5 en lugar de 1
 
 python servidor.py                                     # interfaz web en http://127.0.0.1:8000
 python servidor.py --puerto 8080 --sin-navegador
@@ -30,11 +30,11 @@ No hay tests ni proceso de compilación. Para probar cambios rápido, usa un `au
 
 ## Arquitectura
 
-`ejecutar(entrada, modelo, cpu, rapido, hablantes, avisar, al_leer_audio)` hace todo el proceso y devuelve una lista de `Intervencion(inicio, fin, hablante, texto, palabras)`. La usan tanto `main()` (CLI) como `servidor.py`. El progreso no se imprime directamente: se comunica con el callback `avisar(fase, mensaje, fraccion)`. `avisar_consola` lo imprime y el servidor lo convierte en eventos. Fases: `preparacion`, `transcripcion`, `segmento`, `diarizacion` y `aviso`. Los pasos que sigue `ejecutar()`:
+`ejecutar(entrada, modelo, cpu, preciso, hablantes, avisar, al_leer_audio)` hace todo el proceso y devuelve una lista de `Intervencion(inicio, fin, hablante, texto, palabras)`. La usan tanto `main()` (CLI) como `servidor.py`. El progreso no se imprime directamente: se comunica con el callback `avisar(fase, mensaje, fraccion)`. `avisar_consola` lo imprime y el servidor lo convierte en eventos. Fases: `preparacion`, `transcripcion`, `segmento`, `diarizacion` y `aviso`. Los pasos que sigue `ejecutar()`:
 
 1. **Decodificar una vez**: `faster_whisper.decode_audio` (usa PyAV, no hace falta ffmpeg) carga `audio.mp4` como un array mono a 16 kHz. El mismo array se pasa a Whisper y a la diarización, así que ambos comparten la misma línea de tiempo.
 2. **Transcribir** (`transcribir`): faster-whisper con `word_timestamps=True` y VAD; devuelve una lista plana de palabras `(inicio, fin, texto)`. La transcripción ocurre al recorrer el generador de segmentos.
-3. **Diarizar** (`diarizar`): diarización offline de sherpa-onnx (segmentación de pyannote + embeddings de 3D-Speaker + clustering rápido), solo en CPU. `--hablantes` fija `num_clusters`; si no se indica, se usa `-1` con `threshold=0.5` y el diarizador decide cuántas personas hay.
+3. **Diarizar** (`diarizar`): diarización offline de sherpa-onnx (segmentación de pyannote + embeddings CAM++ de 3D-Speaker entrenados con VoxCeleb + clustering rápido), solo en CPU. `--hablantes` fija `num_clusters`; si no se indica, se usa `-1` con `threshold=0.5` y el diarizador decide cuántas personas hay.
 4. **Combinar** (`asignar_hablantes`): cada palabra se asigna al turno de habla con el que más se solapa. Un solape negativo cuenta como distancia, así que una palabra que cae en un hueco va al turno más cercano.
 5. **Agrupar** (`agrupar_por_hablante`): las palabras seguidas de un mismo hablante forman una `Intervencion`. Los ids de hablante se renumeran por orden de aparición, que es como `--nombres` asigna los nombres. `formatear_lineas` genera las líneas de texto finales.
 

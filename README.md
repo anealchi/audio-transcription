@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ```
 
 La primera ejecución descarga los modelos: Whisper (~1,6 GB para `large-v3-turbo`) y los de
-identificación de voces (~40 MB, en la carpeta `modelos/`).
+identificación de voces (~35 MB, en la carpeta `modelos/`).
 
 ## Uso desde el navegador
 
@@ -62,8 +62,8 @@ Opciones:
 - `--modelo medium` — otro modelo de Whisper (`tiny`, `base`, `small`, `medium`, `large-v3`,
   `large-v3-turbo`). Más pequeño = más rápido pero menos preciso.
 - `--cpu` — forzar CPU para la transcripción.
-- `--rapido` — transcripción más rápida y algo menos precisa (búsqueda simple en lugar de explorar
-  5 candidatos).
+- `--preciso` — explora 5 candidatos al transcribir en lugar de hacer una búsqueda simple. Es más
+  lento y, en algunos audios, algo más preciso. En la web es la opción *Modo preciso*.
 
 El programa se adapta al equipo en el que se ejecuta: usa la GPU NVIDIA solo si la detecta (si no,
 pasa directamente a la CPU) y, en la CPU, aprovecha todos los núcleos disponibles tanto para

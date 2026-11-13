@@ -427,7 +427,7 @@ async function transcribir(e) {
   const hablantes = $("#hablantes").value.trim();
   if (hablantes) datos.append("hablantes", hablantes);
   datos.append("cpu", $("#cpu").checked);
-  datos.append("rapido", $("#rapido").checked);
+  datos.append("preciso", $("#preciso").checked);
 
   empezarProgreso();
   try {

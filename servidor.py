@@ -128,7 +128,7 @@ def crear_trabajo(
     modelo: Annotated[str, Form()] = tr.MODELO_POR_DEFECTO,
     hablantes: Annotated[int | None, Form()] = None,
     cpu: Annotated[bool, Form()] = False,
-    rapido: Annotated[bool, Form()] = False,
+    preciso: Annotated[bool, Form()] = False,
 ) -> dict:
     if modelo not in tr.MODELOS:
         raise HTTPException(422, f"Modelo desconocido: '{modelo}'.")
@@ -146,7 +146,7 @@ def crear_trabajo(
 
     delante = sum(not t.terminado for t in trabajos.values())
     trabajo = Trabajo(ruta, {"modelo": modelo, "hablantes": hablantes,
-                             "cpu": cpu, "rapido": rapido})
+                             "cpu": cpu, "preciso": preciso})
     if delante:
         trabajo.emitir("progreso", fase="cola", fraccion=None,
                        mensaje=f"En cola: {delante} transcripción(es) "
