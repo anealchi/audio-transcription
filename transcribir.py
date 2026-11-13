@@ -5,6 +5,7 @@ Uso:
     python transcribir.py
     python transcribir.py --hablantes 2 --nombres "Ana,Luis"
     python transcribir.py -o salida.txt --modelo medium --cpu
+    python transcribir.py --rapido
 """
 
 import argparse
@@ -18,6 +19,10 @@ import urllib.request
 from pathlib import Path
 
 MODELO_POR_DEFECTO = "large-v3-turbo"
+# Candidatos que Whisper explora en paralelo: más = algo más preciso pero
+# más lento; 1 = búsqueda simple (opción --rapido)
+BEAM_POR_DEFECTO = 5
+BEAM_RAPIDO = 1
 RAIZ_PROYECTO = Path(__file__).resolve().parent
 ARCHIVO_ENTRADA = RAIZ_PROYECTO / "audio.mp4"
 FRECUENCIA_MUESTREO = 16000
@@ -49,6 +54,28 @@ def registrar_dlls_cuda() -> None:
                 os.add_dll_directory(ruta)
 
 
+def hay_gpu_cuda() -> bool:
+    """Indica si CTranslate2 (el motor de faster-whisper) ve una GPU NVIDIA.
+
+    Debe llamarse después de registrar_dlls_cuda(). Detectar una GPU no
+    garantiza que funcione (pueden faltar librerías CUDA), así que el
+    programa mantiene además el paso a CPU si la transcripción falla.
+    """
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except (ImportError, OSError, RuntimeError):
+        return False
+
+
+def num_hilos() -> int:
+    """Hilos de CPU disponibles para este proceso en el equipo actual."""
+    # process_cpu_count (Python 3.13+) respeta los núcleos asignados al
+    # proceso; en versiones anteriores se usan todos los del equipo.
+    contar = getattr(os, "process_cpu_count", os.cpu_count)
+    return contar() or 1
+
+
 def formatear_tiempo(segundos: float) -> str:
     total = int(segundos)
     h, resto = divmod(total, 3600)
@@ -58,18 +85,25 @@ def formatear_tiempo(segundos: float) -> str:
 
 # --------------------------------------------------------------------------- transcripción
 
-def transcribir(audio, modelo: str, dispositivo: str) -> list[tuple[float, float, str]]:
+def transcribir(audio, modelo: str, dispositivo: str,
+                beam_size: int) -> list[tuple[float, float, str]]:
     """Devuelve la lista de palabras (inicio, fin, texto) del audio."""
     from faster_whisper import WhisperModel
 
-    tipo = "float16" if dispositivo == "cuda" else "int8"
-    print(f"Cargando modelo '{modelo}' en {dispositivo.upper()} ({tipo})...")
-    whisper = WhisperModel(modelo, device=dispositivo, compute_type=tipo)
+    if dispositivo == "cuda":
+        tipo, detalle = "float16", "float16"
+    else:
+        tipo, detalle = "int8", f"int8, {num_hilos()} hilos"
+    print(f"Cargando modelo '{modelo}' en {dispositivo.upper()} "
+          f"({detalle})...")
+    # cpu_threads solo afecta a la CPU (por defecto faster-whisper usa 4)
+    whisper = WhisperModel(modelo, device=dispositivo, compute_type=tipo,
+                           cpu_threads=num_hilos())
 
     segmentos, info = whisper.transcribe(
         audio,
         language="es",
-        beam_size=5,
+        beam_size=beam_size,
         vad_filter=True,
         word_timestamps=True,
     )
@@ -122,12 +156,15 @@ def diarizar(audio, num_hablantes: int | None) -> list[tuple[float, float, int]]
     import sherpa_onnx
 
     descargar_modelos()
+    hilos = num_hilos()  # sherpa-onnx usa 1 hilo si no se indica
     config = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
             pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
                 model=str(MODELO_SEGMENTACION)),
+            num_threads=hilos,
         ),
-        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(MODELO_EMBEDDINGS)),
+        embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
+            model=str(MODELO_EMBEDDINGS), num_threads=hilos),
         clustering=sherpa_onnx.FastClusteringConfig(
             num_clusters=num_hablantes or -1,  # -1 = detectar el número automáticamente
             threshold=0.5,
@@ -142,7 +179,8 @@ def diarizar(audio, num_hablantes: int | None) -> list[tuple[float, float, int]]
         raise RuntimeError(f"El modelo de diarización espera {sd.sample_rate} Hz.")
 
     def progreso(hechos: int, total: int) -> int:
-        print(f"\rIdentificando hablantes... {hechos / total * 100:5.1f}%", end="", flush=True)
+        print(f"\rIdentificando hablantes ({hilos} hilos)... "
+              f"{hechos / total * 100:5.1f}%", end="", flush=True)
         return 0
 
     resultado = sd.process(audio, callback=progreso).sort_by_start_time()
@@ -198,6 +236,10 @@ def main() -> int:
                         help=f"Modelo de Whisper: tiny, base, small, medium, large-v3, large-v3-turbo... "
                              f"(por defecto {MODELO_POR_DEFECTO})")
     parser.add_argument("--cpu", action="store_true", help="Forzar el uso de CPU en lugar de la GPU")
+    parser.add_argument("--rapido", action="store_true",
+                        help="Transcripción más rápida y algo menos precisa "
+                             f"(beam_size={BEAM_RAPIDO} en lugar de "
+                             f"{BEAM_POR_DEFECTO})")
     parser.add_argument("--hablantes", type=int,
                         help="Número de personas que hablan, si se conoce (mejora la precisión)")
     parser.add_argument("--nombres",
@@ -215,20 +257,27 @@ def main() -> int:
     salida: Path = args.salida or entrada.with_suffix(".txt")
 
     inicio = time.perf_counter()
+    usar_gpu = False
     if not args.cpu:
-        registrar_dlls_cuda()
+        registrar_dlls_cuda()  # antes de importar faster_whisper/ctranslate2
+        usar_gpu = hay_gpu_cuda()
+        if not usar_gpu:
+            print("No se ha detectado una GPU NVIDIA: se usará la CPU.")
+    beam = BEAM_RAPIDO if args.rapido else BEAM_POR_DEFECTO
 
     from faster_whisper import decode_audio
     audio = decode_audio(str(entrada), sampling_rate=FRECUENCIA_MUESTREO)
 
-    if args.cpu:
-        palabras = transcribir(audio, args.modelo, "cpu")
+    if not usar_gpu:
+        palabras = transcribir(audio, args.modelo, "cpu", beam)
     else:
         try:
-            palabras = transcribir(audio, args.modelo, "cuda")
-        except (RuntimeError, OSError, ValueError) as e:  # sin GPU o sin librerías CUDA
-            print(f"\nNo se pudo usar la GPU ({e}).\nReintentando en CPU...\n", file=sys.stderr)
-            palabras = transcribir(audio, args.modelo, "cpu")
+            palabras = transcribir(audio, args.modelo, "cuda", beam)
+        except (RuntimeError, OSError, ValueError) as e:
+            # GPU detectada, pero faltan librerías CUDA o no hay memoria
+            print(f"\nNo se pudo usar la GPU ({e}).\n"
+                  "Reintentando en CPU...\n", file=sys.stderr)
+            palabras = transcribir(audio, args.modelo, "cpu", beam)
 
     print()
     turnos = diarizar(audio, args.hablantes)

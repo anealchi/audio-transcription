@@ -42,3 +42,9 @@ Opciones:
 - `--modelo medium` — otro modelo de Whisper (`tiny`, `base`, `small`, `medium`, `large-v3`,
   `large-v3-turbo`). Más pequeño = más rápido pero menos preciso.
 - `--cpu` — forzar CPU para la transcripción.
+- `--rapido` — transcripción más rápida y algo menos precisa (búsqueda simple en lugar de explorar
+  5 candidatos).
+
+El programa se adapta al equipo en el que se ejecuta: usa la GPU NVIDIA solo si la detecta (si no,
+pasa directamente a la CPU) y, en la CPU, aprovecha todos los núcleos disponibles tanto para
+transcribir como para identificar las voces.
