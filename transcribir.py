@@ -63,8 +63,10 @@ Turno = tuple[float, float, int]  # (inicio, fin, id interno del hablante)
 class Intervencion(NamedTuple):
     """Palabras seguidas de un mismo hablante."""
     inicio: float
+    fin: float
     hablante: int  # 0, 1, 2... por orden de aparición en el audio
     texto: str
+    palabras: list[Palabra]  # la web las resalta al reproducir el audio
 
 
 def avisar_consola(fase: str, mensaje: str, fraccion: float | None) -> None:
@@ -269,15 +271,17 @@ def asignar_hablantes(palabras, turnos) -> list[int]:
 def agrupar_por_hablante(palabras, hablantes) -> list[Intervencion]:
     """Une las palabras consecutivas del mismo hablante y renumera los
     hablantes por orden de aparición."""
-    grupos: list[tuple[float, int, list[str]]] = []
-    for (inicio, _, texto), hablante in zip(palabras, hablantes):
-        if not grupos or grupos[-1][1] != hablante:
-            grupos.append((inicio, hablante, []))
-        grupos[-1][2].append(texto)
+    grupos: list[tuple[int, list[Palabra]]] = []
+    for palabra, hablante in zip(palabras, hablantes):
+        if not grupos or grupos[-1][0] != hablante:
+            grupos.append((hablante, []))
+        grupos[-1][1].append(palabra)
     orden: dict[int, int] = {}  # id interno -> número por orden de aparición
-    return [Intervencion(inicio, orden.setdefault(h, len(orden)),
-                         "".join(trozos).strip())
-            for inicio, h, trozos in grupos]
+    return [Intervencion(inicio=suyas[0][0], fin=suyas[-1][1],
+                         hablante=orden.setdefault(h, len(orden)),
+                         texto="".join(p[2] for p in suyas).strip(),
+                         palabras=suyas)
+            for h, suyas in grupos]
 
 
 def etiqueta_hablante(hablante: int, nombres: list[str]) -> str:

@@ -28,6 +28,11 @@ vídeo, elige las opciones y pulsa **Transcribir**: verás el progreso y las fra
 transcriben. Al terminar puedes poner nombre a cada hablante (se muestra su primera frase para
 reconocerlo), copiar el texto o descargarlo como `.txt`.
 
+Para revisar la transcripción, reproduce el audio desde la propia página. La palabra que está sonando
+se resalta y la página se desplaza sola para seguirla (se puede desactivar con *Seguir el audio*). Haz
+clic en una palabra o en el tiempo de una línea para escuchar desde ese punto. También puedes cambiar
+la velocidad, usar `Espacio` para reproducir o pausar y `←`/`→` para retroceder o avanzar 5 segundos.
+
 Opciones del servidor: `--puerto 8080` para usar otro puerto y `--sin-navegador` para no abrirlo
 automáticamente. Las transcripciones se hacen de una en una; si lanzas varias, esperan en cola.
 

@@ -103,6 +103,29 @@
         <div class="lista-hablantes" id="lista-hablantes"></div>
       </div>
 
+      <div class="tarjeta reproductor" id="reproductor">
+        <audio id="audio" controls preload="metadata"></audio>
+        <div class="reproductor-opciones" id="reproductor-opciones">
+          <label class="casilla">
+            Velocidad
+            <select id="velocidad">
+              <option value="0.5">0,5×</option>
+              <option value="0.75">0,75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.25">1,25×</option>
+              <option value="1.5">1,5×</option>
+              <option value="2">2×</option>
+            </select>
+          </label>
+          <label class="casilla">
+            <input type="checkbox" id="seguir" checked>
+            <span>Seguir el audio</span>
+          </label>
+          <span class="atajos">Clic en una palabra: escuchar desde ahí · <kbd>Espacio</kbd> reproducir/pausar · <kbd>←</kbd> <kbd>→</kbd> 5 s</span>
+        </div>
+        <p class="aviso" id="aviso-audio" hidden>El navegador no puede reproducir este formato. La transcripción sigue disponible.</p>
+      </div>
+
       <div class="tarjeta transcripcion" id="transcripcion"></div>
 
       <button type="button" class="boton secundario centrado" id="boton-nueva">Nueva transcripción</button>

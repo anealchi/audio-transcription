@@ -13,6 +13,8 @@
   --error: #b42318;
   --error-fondo: #fdecea;
   --exito: #1f7a4d;
+  --resaltado: #ffe27a;
+  --resaltado-texto: #1d1c1a;
   --radio: 12px;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
   /* Colores de los hablantes */
@@ -39,6 +41,8 @@
     --error: #f59b91;
     --error-fondo: #3a1a17;
     --exito: #6fd3a0;
+    --resaltado: #e8c35a;
+    --resaltado-texto: #151514;
     --h0: #7c9cf5;
     --h1: #fb923c;
     --h2: #6fd3a0;
@@ -279,18 +283,62 @@ select:focus, input:focus-visible {
   text-overflow: ellipsis;
 }
 
-.transcripcion { padding: 8px 20px; }
+/* Reproductor: se queda arriba al desplazarse por la transcripción */
+.reproductor {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  padding: 14px 16px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.08);
+}
+.reproductor audio { display: block; width: 100%; height: 40px; }
+.reproductor-opciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+.reproductor-opciones select { width: auto; padding: 4px 8px; }
+.atajos { font-size: 12px; color: var(--texto-suave); }
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--borde);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+
+.transcripcion { padding: 8px 8px; }
 .linea {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 14px;
-  padding: 10px 0;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--borde);
+  border-radius: 8px;
+  transition: background 0.2s;
 }
 .linea:last-child { border-bottom: none; }
-.linea-tiempo { font-family: var(--mono); font-size: 13px; color: var(--texto-suave); padding-top: 1px; }
+.linea.activa { background: var(--acento-suave); }
+.linea-tiempo {
+  font: 13px var(--mono);
+  color: var(--texto-suave);
+  background: none;
+  border: none;
+  padding: 1px 0 0;
+  cursor: pointer;
+  text-align: left;
+}
+.linea-tiempo:hover { color: var(--acento); text-decoration: underline; }
+.linea-tiempo:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
 .linea-hablante { font-weight: 600; font-size: 14px; }
 .linea-texto { grid-column: 2; margin: 0; overflow-wrap: anywhere; }
+.palabra { cursor: pointer; border-radius: 3px; }
+.palabra:hover { background: var(--acento-suave); }
+.palabra.activa { background: var(--resaltado); color: var(--resaltado-texto); }
 
 @media (max-width: 480px) {
   .contenedor { padding-top: 20px; }

@@ -77,11 +77,25 @@ def procesar(trabajo: Trabajo) -> None:
         trabajo.emitir(
             "fin", final=True,
             segundos=round(time.perf_counter() - inicio, 1),
-            intervenciones=[
-                {**i._asdict(), "tiempo": tr.formatear_tiempo(i.inicio)}
-                for i in intervenciones])
+            intervenciones=[a_json(i) for i in intervenciones])
     finally:
         shutil.rmtree(trabajo.ruta.parent, ignore_errors=True)
+
+
+def a_json(intervencion: tr.Intervencion) -> dict:
+    """Intervención para la página. Los tiempos se redondean a centésimas
+    para que el resultado de un audio largo no pese demasiado."""
+    return {
+        "inicio": round(intervencion.inicio, 2),
+        "fin": round(intervencion.fin, 2),
+        "tiempo": tr.formatear_tiempo(intervencion.inicio),
+        "hablante": intervencion.hablante,
+        "texto": intervencion.texto,
+        # [inicio, fin, texto] de cada palabra, para resaltarlas al
+        # reproducir el audio
+        "palabras": [[round(inicio, 2), round(fin, 2), texto]
+                     for inicio, fin, texto in intervencion.palabras],
+    }
 
 
 def procesar_cola() -> None:

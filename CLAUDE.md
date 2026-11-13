@@ -30,7 +30,7 @@ No hay tests ni proceso de compilación. Para probar cambios rápido, usa un `au
 
 ## Arquitectura
 
-`ejecutar(entrada, modelo, cpu, rapido, hablantes, avisar)` hace todo el proceso y devuelve una lista de `Intervencion(inicio, hablante, texto)`. La usan tanto `main()` (CLI) como `servidor.py`. El progreso no se imprime directamente: se comunica con el callback `avisar(fase, mensaje, fraccion)`. `avisar_consola` lo imprime y el servidor lo convierte en eventos. Fases: `preparacion`, `transcripcion`, `segmento`, `diarizacion` y `aviso`. Los pasos que sigue `ejecutar()`:
+`ejecutar(entrada, modelo, cpu, rapido, hablantes, avisar)` hace todo el proceso y devuelve una lista de `Intervencion(inicio, fin, hablante, texto, palabras)`. La usan tanto `main()` (CLI) como `servidor.py`. El progreso no se imprime directamente: se comunica con el callback `avisar(fase, mensaje, fraccion)`. `avisar_consola` lo imprime y el servidor lo convierte en eventos. Fases: `preparacion`, `transcripcion`, `segmento`, `diarizacion` y `aviso`. Los pasos que sigue `ejecutar()`:
 
 1. **Decodificar una vez**: `faster_whisper.decode_audio` (usa PyAV, no hace falta ffmpeg) carga `audio.mp4` como un array mono a 16 kHz. El mismo array se pasa a Whisper y a la diarización, así que ambos comparten la misma línea de tiempo.
 2. **Transcribir** (`transcribir`): faster-whisper con `word_timestamps=True` y VAD; devuelve una lista plana de palabras `(inicio, fin, texto)`. La transcripción ocurre al recorrer el generador de segmentos.
@@ -44,6 +44,7 @@ Interfaz web (`servidor.py`, FastAPI):
 - Un único hilo (`procesar_cola`) hace las transcripciones de una en una. Cada `Trabajo` guarda en memoria todos sus eventos, así que la página puede reconectarse (`Last-Event-ID`) sin perder ninguno.
 - `cargar_whisper` deja el último modelo en caché (`lru_cache(maxsize=1)`) para no recargarlo en cada petición. Si CUDA falla, se vacía la caché para liberar la GPU.
 - El frontend (`web/index.html`, `app.js`, `estilos.css`) es HTML/JS sin dependencias ni compilación. El renombrado de hablantes y la descarga del `.txt` se hacen en el navegador, sin volver a procesar el audio.
+- **Reproducción con resaltado**: el navegador reproduce el archivo elegido mediante `URL.createObjectURL`, sin volver a pedirlo al servidor. El evento `fin` incluye, para cada intervención, sus `palabras` como `[inicio, fin, texto]` (redondeadas a centésimas en `a_json`). Mientras suena el audio, un bucle con `requestAnimationFrame` (`timeupdate` llega solo unas 4 veces por segundo) busca con búsqueda binaria la palabra y la línea activas.
 - El servidor solo escucha en `127.0.0.1`.
 
 Detalles poco evidentes:
