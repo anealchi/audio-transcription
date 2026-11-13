@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transcriptor</title>
+  <link rel="stylesheet" href="estilos.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="contenedor">
+    <header class="cabecera">
+      <h1>Transcriptor</h1>
+      <span class="chip" id="dispositivo" title="Dónde se ejecuta Whisper">…</span>
+    </header>
+
+    <!-- 1. Elegir archivo y opciones -->
+    <section id="vista-formulario">
+      <form id="formulario" class="tarjeta">
+        <label class="zona" id="zona">
+          <input type="file" id="archivo" accept="audio/*,video/*">
+          <span class="zona-icono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none"
+                 stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>
+            </svg>
+          </span>
+          <span class="zona-titulo" id="zona-titulo">Arrastra aquí un audio o vídeo</span>
+          <span class="zona-detalle" id="zona-detalle">o haz clic para elegirlo · mp4, mp3, wav, m4a…</span>
+        </label>
+
+        <div class="opciones">
+          <label class="campo">
+            <span class="campo-etiqueta">Modelo</span>
+            <select id="modelo"></select>
+            <small id="modelo-ayuda"></small>
+          </label>
+          <label class="campo">
+            <span class="campo-etiqueta">Personas que hablan</span>
+            <input type="number" id="hablantes" min="1" max="20"
+                   inputmode="numeric" placeholder="Detectar automáticamente">
+            <small>Si lo sabes, indicarlo mejora la precisión.</small>
+          </label>
+        </div>
+
+        <div class="casillas">
+          <label class="casilla">
+            <input type="checkbox" id="rapido">
+            <span>Modo rápido <small>algo menos preciso</small></span>
+          </label>
+          <label class="casilla" id="casilla-cpu">
+            <input type="checkbox" id="cpu">
+            <span>Usar solo la CPU</span>
+          </label>
+        </div>
+
+        <button type="submit" class="boton" id="boton-transcribir" disabled>Transcribir</button>
+      </form>
+    </section>
+
+    <!-- 2. Progreso -->
+    <section id="vista-progreso" hidden>
+      <div class="tarjeta">
+        <p class="archivo-actual" id="progreso-archivo"></p>
+        <ol class="pasos" id="pasos">
+          <li data-paso="subida">Subir</li>
+          <li data-paso="transcripcion">Transcribir</li>
+          <li data-paso="diarizacion">Identificar voces</li>
+        </ol>
+        <div class="barra" id="barra" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+          <div class="barra-relleno" id="barra-relleno"></div>
+        </div>
+        <div class="estado-linea">
+          <span id="estado">Preparando…</span>
+          <span class="cronometro" id="cronometro">0:00</span>
+        </div>
+        <p class="aviso" id="aviso" hidden></p>
+        <div class="vista-previa" id="vista-previa" aria-live="polite"></div>
+        <div class="error" id="error" hidden>
+          <p id="error-mensaje"></p>
+          <button type="button" class="boton secundario" id="boton-volver">Volver</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Resultado -->
+    <section id="vista-resultado" hidden>
+      <div class="tarjeta resumen">
+        <div>
+          <p class="resumen-titulo" id="resumen-titulo"></p>
+          <p class="resumen-detalle" id="resumen-detalle"></p>
+        </div>
+        <div class="acciones">
+          <button type="button" class="boton secundario" id="boton-copiar">Copiar</button>
+          <button type="button" class="boton" id="boton-descargar">Descargar .txt</button>
+        </div>
+      </div>
+
+      <div class="tarjeta">
+        <h2>Hablantes</h2>
+        <p class="ayuda">Escribe el nombre de cada persona; la transcripción se actualiza al momento.</p>
+        <div class="lista-hablantes" id="lista-hablantes"></div>
+      </div>
+
+      <div class="tarjeta transcripcion" id="transcripcion"></div>
+
+      <button type="button" class="boton secundario centrado" id="boton-nueva">Nueva transcripción</button>
+    </section>
+  </main>
+</body>
+</html>

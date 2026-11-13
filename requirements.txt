@@ -8,3 +8,7 @@ truststore
 # Librerías CUDA para usar la GPU NVIDIA (si no hay GPU, el programa usa la CPU)
 nvidia-cublas-cu12
 nvidia-cudnn-cu12==9.*
+# Interfaz web local (python servidor.py)
+fastapi
+uvicorn[standard]
+python-multipart

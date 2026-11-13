@@ -16,7 +16,22 @@ pip install -r requirements.txt
 La primera ejecución descarga los modelos: Whisper (~1,6 GB para `large-v3-turbo`) y los de
 identificación de voces (~40 MB, en la carpeta `modelos/`).
 
-## Uso
+## Uso desde el navegador
+
+```
+.venv\Scripts\activate
+python servidor.py
+```
+
+Se abre `http://127.0.0.1:8000` en el navegador (solo accesible desde tu equipo). Arrastra un audio o
+vídeo, elige las opciones y pulsa **Transcribir**: verás el progreso y las frases a medida que se
+transcriben. Al terminar puedes poner nombre a cada hablante (se muestra su primera frase para
+reconocerlo), copiar el texto o descargarlo como `.txt`.
+
+Opciones del servidor: `--puerto 8080` para usar otro puerto y `--sin-navegador` para no abrirlo
+automáticamente. Las transcripciones se hacen de una en una; si lanzas varias, esperan en cola.
+
+## Uso desde la línea de comandos
 
 Coloca el vídeo en la raíz del proyecto con el nombre `audio.mp4` y ejecuta:
 
