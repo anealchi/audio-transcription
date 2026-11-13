@@ -32,6 +32,7 @@ BEAM_RAPIDO = 1
 RAIZ_PROYECTO = Path(__file__).resolve().parent
 ARCHIVO_ENTRADA = RAIZ_PROYECTO / "audio.mp4"
 FRECUENCIA_MUESTREO = 16000
+PUNTOS_ONDA = 1200  # picos de la forma de onda que dibuja la interfaz web
 
 # Modelos de diarización (quién habla), de las releases oficiales de
 # sherpa-onnx. "recongition" es la errata real de la URL: no corregirla.
@@ -122,6 +123,23 @@ def formatear_tiempo(segundos: float) -> str:
     h, resto = divmod(total, 3600)
     m, s = divmod(resto, 60)
     return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def calcular_onda(audio, puntos: int = PUNTOS_ONDA) -> list[float]:
+    """Picos del audio normalizados de 0 a 1, para dibujar la forma de onda.
+
+    Se normaliza con el percentil 99 para que un golpe aislado no aplane
+    el resto de la onda."""
+    import numpy as np
+
+    n = len(audio)
+    if n == 0:
+        return []
+    puntos = min(puntos, n)
+    tramos = np.asarray(audio[:n - n % puntos]).reshape(puntos, -1)
+    picos = np.abs(tramos).max(axis=1)
+    techo = float(np.percentile(picos, 99)) or 1.0
+    return [round(min(float(p) / techo, 1.0), 3) for p in picos]
 
 
 # ------------------------------------------------------------ transcripción
@@ -303,9 +321,12 @@ def formatear_lineas(intervenciones: list[Intervencion],
 def ejecutar(entrada: Path, modelo: str = MODELO_POR_DEFECTO,
              cpu: bool = False, rapido: bool = False,
              hablantes: int | None = None,
-             avisar: Avisar = avisar_consola) -> list[Intervencion]:
+             avisar: Avisar = avisar_consola,
+             al_leer_audio: Callable[[list[float], float], None] | None = None,
+             ) -> list[Intervencion]:
     """Transcribe y diariza 'entrada'. Lo usan la línea de comandos y la
-    interfaz web."""
+    interfaz web. Si se indica, 'al_leer_audio' recibe la forma de onda
+    (calcular_onda) y la duración en segundos nada más leer el audio."""
     usar_gpu = False
     if not cpu:
         registrar_dlls_cuda()  # antes de importar faster_whisper/ctranslate2
@@ -319,6 +340,8 @@ def ejecutar(entrada: Path, modelo: str = MODELO_POR_DEFECTO,
 
     avisar("preparacion", "Leyendo el audio...", None)
     audio = decode_audio(str(entrada), sampling_rate=FRECUENCIA_MUESTREO)
+    if al_leer_audio is not None:
+        al_leer_audio(calcular_onda(audio), len(audio) / FRECUENCIA_MUESTREO)
 
     palabras = None
     if usar_gpu:

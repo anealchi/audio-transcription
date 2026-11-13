@@ -65,9 +65,14 @@ def procesar(trabajo: Trabajo) -> None:
         trabajo.emitir("progreso", fase=fase, mensaje=mensaje,
                        fraccion=fraccion)
 
+    def al_leer_audio(onda: list[float], duracion: float) -> None:
+        # La página dibuja la onda mientras se transcribe
+        trabajo.emitir("audio", onda=onda, duracion=round(duracion, 2))
+
     inicio = time.perf_counter()
     try:
         intervenciones = tr.ejecutar(trabajo.ruta, avisar=avisar,
+                                     al_leer_audio=al_leer_audio,
                                      **trabajo.opciones)
     except Exception as e:  # cualquier fallo se muestra en la página
         traceback.print_exc()

@@ -19,3 +19,6 @@ modelos/
 .idea/
 Thumbs.db
 desktop.ini
+
+.agents
+.claude

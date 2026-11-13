@@ -27,22 +27,30 @@ const estado = {
   enCurso: false,
   cronometro: null,
   urlAudio: null,    // URL local del archivo elegido, para reproducirlo
+  onda: null,        // picos del audio (0 a 1) que envía el servidor
+  duracion: 0,       // segundos, según el audio que decodificó el servidor
 };
+
+// Lo que muestra la onda mientras se procesa el audio
+const progreso = { paso: "subida", subida: 0, transcripcion: 0, diarizacion: 0 };
 
 // Elementos de la transcripción ordenados por inicio, para saber cuál
 // está sonando en cada momento
 const reproduccion = {
   palabras: [],      // { inicio, fin, el }
-  lineas: [],        // { inicio, fin, el }
+  lineas: [],        // { inicio, fin, hablante, el }
   palabraActiva: -1,
   lineaActiva: -1,
   animacion: null,
+  segundoMostrado: -1,
 };
 // Segundos que una palabra o línea sigue resaltada tras terminar, para
 // que el resaltado no parpadee en las pausas cortas
 const MARGEN_PALABRA = 0.3;
 const MARGEN_LINEA = 1.5;
 const SALTO_TECLADO = 5;
+
+const menosMovimiento = matchMedia("(prefers-reduced-motion: reduce)");
 
 // ------------------------------------------------------------ utilidades
 
@@ -62,10 +70,25 @@ function formatearDuracion(segundos) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Igual que formatear_tiempo de transcribir.py: mm:ss, o h:mm:ss
+function formatearTiempo(segundos) {
+  const total = Math.max(0, Math.floor(segundos || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mmss = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return h ? `${h}:${mmss}` : mmss;
+}
+
+function plural(n, singular, varios) {
+  return `${n} ${n === 1 ? singular : varios}`;
+}
+
 function mostrarVista(nombre) {
   for (const vista of ["formulario", "progreso", "resultado"]) {
     $(`#vista-${vista}`).hidden = vista !== nombre;
   }
+  window.scrollTo({ top: 0 });
 }
 
 function etiqueta(hablante) {
@@ -83,6 +106,101 @@ function crear(etiquetaHtml, clase, texto) {
   return el;
 }
 
+function crearPunto(hablante) {
+  const punto = crear("span", "punto");
+  punto.style.background = colorDe(hablante);
+  punto.setAttribute("aria-hidden", "true");
+  return punto;
+}
+
+// --------------------------------------------------------- forma de onda
+
+const BARRA = { paso: 3, ancho: 2, minimo: 2 };  // en píxeles CSS
+let colores = null;
+
+function leerColores() {
+  const css = getComputedStyle(document.documentElement);
+  const leer = (nombre) => css.getPropertyValue(nombre).trim();
+  colores = {
+    texto: leer("--deck-texto"),
+    suave: leer("--deck-suave"),
+    ambar: leer("--ambar"),
+    hablantes: Array.from({ length: NUM_COLORES }, (_, i) => leer(`--h${i}`)),
+  };
+}
+
+// Ajusta la resolución del lienzo a su tamaño en pantalla
+function lienzo(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const ancho = Math.round(canvas.clientWidth * dpr);
+  const alto = Math.round(canvas.clientHeight * dpr);
+  if (canvas.width !== ancho || canvas.height !== alto) {
+    canvas.width = ancho;
+    canvas.height = alto;
+  }
+  return { ctx: canvas.getContext("2d"), ancho, alto, dpr };
+}
+
+// Reduce los picos a n barras tomando el máximo de cada tramo
+function picos(onda, n) {
+  const resultado = new Float32Array(n);
+  if (!onda || !onda.length) return resultado;
+  for (let i = 0; i < n; i++) {
+    const desde = Math.floor((i * onda.length) / n);
+    const hasta = Math.max(desde + 1, Math.floor(((i + 1) * onda.length) / n));
+    let maximo = 0;
+    for (let j = desde; j < hasta && j < onda.length; j++) maximo = Math.max(maximo, onda[j]);
+    resultado[i] = maximo;
+  }
+  return resultado;
+}
+
+// estilo(x) devuelve [color, opacidad] para la barra en la posición x (0-1)
+function dibujarOnda(canvas, { estilo, cabezal = null, crecimiento = 1 }) {
+  if (!canvas.clientWidth) return;
+  const { ctx, ancho, alto, dpr } = lienzo(canvas);
+  const paso = BARRA.paso * dpr;
+  const grosor = BARRA.ancho * dpr;
+  const n = Math.max(1, Math.floor(ancho / paso));
+  const valores = picos(estado.onda, n);
+  ctx.clearRect(0, 0, ancho, alto);
+
+  for (let i = 0; i < n; i++) {
+    const x = (i + 0.5) / n;
+    // Entrada: las barras crecen de izquierda a derecha
+    const avance = Math.min(1, Math.max(0, (crecimiento - x * 0.45) / 0.55));
+    const altura = Math.max(BARRA.minimo * dpr,
+                            valores[i] * (alto - 2 * dpr) * (1 - (1 - avance) ** 3));
+    const [color, opacidad] = estilo(x);
+    ctx.globalAlpha = opacidad;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(i * paso, (alto - altura) / 2, grosor, altura, grosor / 2);
+    ctx.fill();
+  }
+
+  if (cabezal !== null) {
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = colores.ambar;
+    const xCabezal = Math.min(ancho - dpr, Math.max(dpr, cabezal * ancho));
+    ctx.fillRect(Math.round(xCabezal - dpr), 0, 2 * dpr, alto);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// El único movimiento que no pide el usuario: la onda real aparece
+function animarEntrada(dibujar) {
+  if (menosMovimiento.matches) return dibujar(1);
+  const inicio = performance.now();
+  const duracion = 900;
+  const paso = (ahora) => {
+    const t = Math.min(1, (ahora - inicio) / duracion);
+    dibujar(t);
+    if (t < 1) requestAnimationFrame(paso);
+  };
+  requestAnimationFrame(paso);
+}
+
 // ------------------------------------------------------------ formulario
 
 async function cargarInfo() {
@@ -98,16 +216,15 @@ async function cargarInfo() {
     actualizarAyudaModelo();
 
     const chip = $("#dispositivo");
-    chip.textContent = info.gpu ? "GPU NVIDIA" : "Solo CPU";
+    chip.textContent = info.gpu ? "GPU NVIDIA disponible" : "Sin GPU: se usará la CPU";
     chip.classList.toggle("gpu", info.gpu);
     if (!info.gpu) {
       $("#cpu").checked = true;
       $("#cpu").disabled = true;
       $("#casilla-cpu").classList.add("desactivada");
-      $("#casilla-cpu").title = "No se ha detectado una GPU NVIDIA";
     }
   } catch {
-    $("#dispositivo").textContent = "Sin conexión";
+    $("#dispositivo").textContent = "Sin conexión con el servidor";
   }
 }
 
@@ -120,7 +237,7 @@ function elegirArchivo(archivo) {
   estado.archivo = archivo;
   $("#zona").classList.add("con-archivo");
   $("#zona-titulo").textContent = archivo.name;
-  $("#zona-detalle").textContent = `${formatearTamano(archivo.size)} · haz clic para cambiarlo`;
+  $("#zona-detalle").textContent = `${formatearTamano(archivo.size)}. Haz clic para elegir otro.`;
   $("#boton-transcribir").disabled = false;
 }
 
@@ -148,6 +265,7 @@ function configurarZona() {
 // -------------------------------------------------------------- progreso
 
 function marcarPaso(paso) {
+  progreso.paso = paso;
   const actual = PASOS.indexOf(paso);
   document.querySelectorAll("#pasos li").forEach((li, i) => {
     li.classList.toggle("hecho", i < actual);
@@ -155,37 +273,54 @@ function marcarPaso(paso) {
   });
 }
 
-function actualizarBarra(fraccion) {
-  const barra = $("#barra");
-  const indeterminada = fraccion === null || fraccion === undefined;
-  barra.classList.toggle("indeterminada", indeterminada);
-  if (indeterminada) {
-    $("#barra-relleno").style.width = "";
-    barra.removeAttribute("aria-valuenow");
-  } else {
-    const porcentaje = Math.round(fraccion * 100);
-    $("#barra-relleno").style.width = `${porcentaje}%`;
-    barra.setAttribute("aria-valuenow", porcentaje);
+// Cada pasada sobre el audio se ve en la onda: la transcripción la
+// ilumina y la identificación de voces la pinta de ámbar
+function estiloProgreso(x) {
+  const { paso } = progreso;
+  if (paso === "subida") {
+    return x <= progreso.subida ? [colores.ambar, 1] : [colores.suave, 0.35];
   }
+  if (paso === "diarizacion") {
+    return x <= progreso.diarizacion ? [colores.ambar, 1] : [colores.texto, 0.85];
+  }
+  return x <= progreso.transcripcion ? [colores.texto, 0.9] : [colores.suave, 0.3];
+}
+
+function cabezalProgreso() {
+  const valor = progreso[progreso.paso];
+  return valor > 0 && valor < 1 ? valor : null;
+}
+
+function dibujarProgreso(crecimiento = 1) {
+  dibujarOnda($("#onda-progreso"), {
+    estilo: estiloProgreso, cabezal: cabezalProgreso(), crecimiento,
+  });
 }
 
 function ponerEstado(texto, fraccion) {
-  const porcentaje = fraccion === null || fraccion === undefined
-    ? "" : ` ${Math.round(fraccion * 100)} %`;
-  $("#estado").textContent = texto + porcentaje;
-  actualizarBarra(fraccion);
+  const conFraccion = fraccion !== null && fraccion !== undefined;
+  $("#estado").textContent = conFraccion ? `${texto} ${Math.round(fraccion * 100)} %` : texto;
+  if (conFraccion) {
+    progreso[progreso.paso] = fraccion;
+    $("#onda-progreso").setAttribute("aria-valuenow", Math.round(fraccion * 100));
+  } else {
+    $("#onda-progreso").removeAttribute("aria-valuenow");
+  }
+  dibujarProgreso();
 }
 
 function empezarProgreso() {
   estado.enCurso = true;
+  estado.onda = null;
+  estado.duracion = 0;
+  Object.assign(progreso, { paso: "subida", subida: 0, transcripcion: 0, diarizacion: 0 });
   $("#progreso-archivo").textContent = estado.archivo.name;
   $("#vista-previa").replaceChildren();
   $("#aviso").hidden = true;
   $("#error").hidden = true;
-  $("#barra").hidden = false;
+  mostrarVista("progreso");
   marcarPaso("subida");
   ponerEstado("Subiendo el archivo…", 0);
-  mostrarVista("progreso");
 
   const inicio = Date.now();
   $("#cronometro").textContent = "0:00";
@@ -201,7 +336,6 @@ function terminarProgreso() {
 
 function mostrarError(mensaje) {
   terminarProgreso();
-  $("#barra").hidden = true;
   $("#estado").textContent = "No se pudo completar la transcripción.";
   $("#error-mensaje").textContent = mensaje;
   $("#error").hidden = false;
@@ -210,8 +344,8 @@ function mostrarError(mensaje) {
 function mensajeDeError(respuesta) {
   const detalle = respuesta?.detail;
   if (typeof detalle === "string") return detalle;
-  if (Array.isArray(detalle)) return "Datos del formulario no válidos.";
-  return "Error inesperado del servidor.";
+  if (Array.isArray(detalle)) return "Revisa las opciones del formulario: hay algún dato no válido.";
+  return "El servidor devolvió un error inesperado. Revisa la consola donde se ejecuta servidor.py.";
 }
 
 // fetch no informa del progreso de subida; XMLHttpRequest sí
@@ -227,7 +361,8 @@ function subir(datos) {
       if (xhr.status >= 200 && xhr.status < 300) resolver(xhr.response);
       else rechazar(new Error(mensajeDeError(xhr.response)));
     });
-    xhr.addEventListener("error", () => rechazar(new Error("No se pudo conectar con el servidor.")));
+    xhr.addEventListener("error", () => rechazar(new Error(
+      "No se pudo conectar con el servidor. Comprueba que servidor.py sigue en marcha.")));
     xhr.send(datos);
   });
 }
@@ -250,12 +385,20 @@ function manejarProgreso({ fase, mensaje, fraccion }) {
   }
 }
 
+function recibirAudio({ onda, duracion }) {
+  estado.onda = onda;
+  estado.duracion = duracion;
+  animarEntrada(dibujarProgreso);
+}
+
 function seguir(id) {
   const fuente = new EventSource(`/api/trabajos/${id}/eventos`);
   fuente.addEventListener("message", (e) => {
     const evento = JSON.parse(e.data);
     if (evento.tipo === "progreso") {
       manejarProgreso(evento);
+    } else if (evento.tipo === "audio") {
+      recibirAudio(evento);
     } else if (evento.tipo === "fin") {
       fuente.close();
       terminarProgreso();
@@ -269,7 +412,7 @@ function seguir(id) {
   // servidor rechaza la conexión (por ejemplo, tras reiniciarlo)
   fuente.addEventListener("error", () => {
     if (fuente.readyState === EventSource.CLOSED) {
-      mostrarError("Se ha perdido la conexión con el servidor.");
+      mostrarError("Se ha perdido la conexión con el servidor. Si lo has reiniciado, vuelve a lanzar la transcripción.");
     }
   });
 }
@@ -318,6 +461,13 @@ function pintarTexto(parrafo, palabras) {
   });
 }
 
+function crearEtiquetaHablante(hablante) {
+  const el = crear("span", "linea-hablante");
+  el.dataset.hablante = hablante;
+  el.append(crearPunto(hablante), crear("span", "nombre", etiqueta(hablante)));
+  return el;
+}
+
 function pintarTranscripcion() {
   reproduccion.palabras = [];
   reproduccion.lineas = [];
@@ -326,27 +476,36 @@ function pintarTranscripcion() {
 
   const filas = estado.intervenciones.map((i) => {
     const fila = crear("div", "linea");
+    fila.style.setProperty("--color-hablante", colorDe(i.hablante));
     const tiempo = crear("button", "linea-tiempo", i.tiempo);
     tiempo.type = "button";
     tiempo.dataset.inicio = i.inicio;
-    tiempo.title = "Escuchar desde aquí";
-    const hablante = crear("span", "linea-hablante", etiqueta(i.hablante));
-    hablante.dataset.hablante = i.hablante;
-    hablante.style.color = colorDe(i.hablante);
+    tiempo.setAttribute("aria-label", `Escuchar desde ${i.tiempo}`);
     const texto = crear("p", "linea-texto");
     pintarTexto(texto, i.palabras);
-    fila.append(tiempo, hablante, texto);
-    reproduccion.lineas.push({ inicio: i.inicio, fin: i.fin, el: fila });
+    fila.append(tiempo, crearEtiquetaHablante(i.hablante), texto);
+    reproduccion.lineas.push({ inicio: i.inicio, fin: i.fin, hablante: i.hablante, el: fila });
     return fila;
   });
   if (!filas.length) {
-    filas.push(crear("p", "ayuda", "No se ha detectado voz en el audio."));
+    filas.push(crear("p", "ayuda", "No se ha detectado voz en el audio. Prueba con otro archivo o revisa que tenga sonido."));
   }
   $("#transcripcion").replaceChildren(...filas);
 }
 
+function pintarLeyenda(numHablantes) {
+  const elementos = [];
+  for (let n = 0; n < numHablantes; n++) {
+    const li = crear("li");
+    li.dataset.hablante = n;
+    li.append(crearPunto(n), crear("span", "nombre", etiqueta(n)));
+    elementos.push(li);
+  }
+  $("#leyenda").replaceChildren(...elementos);
+}
+
 function renombrar(hablante) {
-  document.querySelectorAll(`.linea-hablante[data-hablante="${hablante}"]`)
+  document.querySelectorAll(`[data-hablante="${hablante}"] .nombre`)
     .forEach((el) => { el.textContent = etiqueta(hablante); });
 }
 
@@ -354,9 +513,7 @@ function pintarHablantes(numHablantes) {
   const lista = [];
   for (let n = 0; n < numHablantes; n++) {
     const fila = crear("div", "hablante");
-    const punto = crear("span", "punto");
-    punto.style.background = colorDe(n);
-
+    const campo = crear("div", "hablante-campo");
     const entrada = crear("input");
     entrada.type = "text";
     entrada.placeholder = `Hablante ${n + 1}`;
@@ -366,19 +523,19 @@ function pintarHablantes(numHablantes) {
       estado.nombres[n] = entrada.value;
       renombrar(n);
     });
+    campo.append(crearPunto(n), entrada);
 
-    // Su primera frase ayuda a reconocer quién es
     const primera = estado.intervenciones.find((i) => i.hablante === n);
     const veces = estado.intervenciones.filter((i) => i.hablante === n).length;
     const muestra = crear("span", "hablante-muestra",
-      `${veces} intervención${veces === 1 ? "" : "es"} · Empieza en ${primera.tiempo}: «${primera.texto}»`);
+      `${plural(veces, "intervención", "intervenciones")}. Empieza en ${primera.tiempo}: «${primera.texto}»`);
     muestra.title = primera.texto;
 
-    fila.append(punto, entrada, muestra);
+    fila.append(campo, muestra);
     lista.push(fila);
   }
   $("#lista-hablantes").replaceChildren(...lista);
-  $("#lista-hablantes").closest(".tarjeta").hidden = numHablantes === 0;
+  $("#lista-hablantes").closest(".bloque").hidden = numHablantes === 0;
 }
 
 function mostrarResultado({ intervenciones, segundos }) {
@@ -388,25 +545,54 @@ function mostrarResultado({ intervenciones, segundos }) {
 
   $("#resumen-titulo").textContent = estado.archivo.name;
   $("#resumen-detalle").textContent =
-    `${numHablantes} hablante${numHablantes === 1 ? "" : "s"} · ` +
-    `${intervenciones.length} intervenciones · lista en ${formatearDuracion(segundos)}`;
+    `${plural(numHablantes, "hablante", "hablantes")} y ` +
+    `${plural(intervenciones.length, "intervención", "intervenciones")}. ` +
+    `Lista en ${formatearDuracion(segundos)}.`;
   pintarHablantes(numHablantes);
+  pintarLeyenda(numHablantes);
   pintarTranscripcion();
-  prepararAudio();
   mostrarVista("resultado");
+  prepararAudio();
+}
+
+function descargar() {
+  const blob = new Blob([textoPlano()], { type: "text/plain;charset=utf-8" });
+  const enlace = crear("a");
+  enlace.href = URL.createObjectURL(blob);
+  enlace.download = estado.archivo.name.replace(/\.[^.]+$/, "") + ".txt";
+  enlace.click();
+  setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
+}
+
+async function copiar() {
+  const boton = $("#boton-copiar");
+  try {
+    await navigator.clipboard.writeText(textoPlano());
+    boton.textContent = "Texto copiado";
+  } catch {
+    boton.textContent = "No se pudo copiar";
+  }
+  setTimeout(() => { boton.textContent = "Copiar texto"; }, 1500);
 }
 
 // ----------------------------------------------------------- reproducción
 
+const audio = () => $("#audio");
+
+function duracionAudio() {
+  return estado.duracion || audio().duration || 0;
+}
+
 function prepararAudio() {
-  const audio = $("#audio");
   // El navegador reproduce el archivo que ya tiene; no se vuelve a pedir
   if (estado.urlAudio) URL.revokeObjectURL(estado.urlAudio);
   estado.urlAudio = URL.createObjectURL(estado.archivo);
   $("#aviso-audio").hidden = true;
-  $("#reproductor-opciones").hidden = false;
-  audio.hidden = false;
-  audio.src = estado.urlAudio;
+  $("#reproductor-principal").hidden = false;
+  $("#reproductor-pie").hidden = false;
+  reproduccion.segundoMostrado = -1;
+  audio().src = estado.urlAudio;
+  actualizarReproductor();
 }
 
 // Índice del último elemento que empieza en t o antes (-1 si ninguno)
@@ -436,9 +622,43 @@ function cambiarActivo(lista, anterior, nuevo) {
   if (nuevo >= 0) lista[nuevo].el.classList.add("activa");
 }
 
+// La onda del resultado: cada barra con el color de quien habla en ese
+// momento; lo ya escuchado, a plena intensidad
+function dibujarResultado() {
+  const total = duracionAudio();
+  const cabezal = total ? audio().currentTime / total : 0;
+  dibujarOnda($("#onda-resultado"), {
+    cabezal,
+    estilo: (x) => {
+      const t = x * total;
+      const i = activo(reproduccion.lineas, t, 0.25);
+      const escuchado = x <= cabezal;
+      if (i < 0) return [colores.suave, escuchado ? 0.6 : 0.25];
+      const color = colores.hablantes[reproduccion.lineas[i].hablante % NUM_COLORES];
+      return [color, escuchado ? 1 : 0.4];
+    },
+  });
+}
+
+function actualizarReproductor() {
+  const t = audio().currentTime;
+  const total = duracionAudio();
+  const segundo = Math.floor(t);
+  if (segundo !== reproduccion.segundoMostrado) {
+    reproduccion.segundoMostrado = segundo;
+    $("#tiempo-actual").textContent = formatearTiempo(t);
+    $("#tiempo-total").textContent = `de ${formatearTiempo(total)}`;
+    const onda = $("#onda-resultado");
+    onda.setAttribute("aria-valuemax", Math.round(total));
+    onda.setAttribute("aria-valuenow", segundo);
+    onda.setAttribute("aria-valuetext", `${formatearTiempo(t)} de ${formatearTiempo(total)}`);
+  }
+  dibujarResultado();
+}
+
 function resaltar() {
-  const audio = $("#audio");
-  const t = audio.currentTime;
+  const t = audio().currentTime;
+  actualizarReproductor();
 
   const palabra = activo(reproduccion.palabras, t, MARGEN_PALABRA);
   if (palabra !== reproduccion.palabraActiva) {
@@ -450,10 +670,9 @@ function resaltar() {
   if (linea !== reproduccion.lineaActiva) {
     cambiarActivo(reproduccion.lineas, reproduccion.lineaActiva, linea);
     reproduccion.lineaActiva = linea;
-    if (linea >= 0 && !audio.paused && $("#seguir").checked) {
-      const suave = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (linea >= 0 && !audio().paused && $("#seguir").checked) {
       reproduccion.lineas[linea].el.scrollIntoView({
-        block: "center", behavior: suave ? "smooth" : "auto",
+        block: "center", behavior: menosMovimiento.matches ? "auto" : "smooth",
       });
     }
   }
@@ -472,50 +691,84 @@ function pararBucle() {
   resaltar();
 }
 
+function irA(segundos) {
+  const total = duracionAudio();
+  audio().currentTime = Math.min(Math.max(0, segundos), total || segundos);
+  resaltar();
+}
+
 function escucharDesde(segundos) {
-  const audio = $("#audio");
-  audio.currentTime = segundos;
-  audio.play().catch(() => {});
+  irA(segundos);
+  audio().play().catch(() => {});
 }
 
 function alternarReproduccion() {
-  const audio = $("#audio");
-  if (audio.paused) audio.play().catch(() => {});
-  else audio.pause();
+  if (audio().paused) audio().play().catch(() => {});
+  else audio().pause();
+}
+
+function actualizarBotonPlay() {
+  const sonando = !audio().paused;
+  const boton = $("#boton-play");
+  boton.classList.toggle("sonando", sonando);
+  boton.setAttribute("aria-label", sonando ? "Pausar" : "Reproducir");
+}
+
+function configurarOndaComoBarra() {
+  const onda = $("#onda-resultado");
+  const posicion = (e) => {
+    const caja = onda.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - caja.left) / caja.width));
+  };
+  onda.addEventListener("pointerdown", (e) => {
+    onda.setPointerCapture(e.pointerId);
+    irA(posicion(e) * duracionAudio());
+  });
+  onda.addEventListener("pointermove", (e) => {
+    if (onda.hasPointerCapture(e.pointerId)) irA(posicion(e) * duracionAudio());
+  });
 }
 
 function configurarReproductor() {
-  const audio = $("#audio");
-  audio.addEventListener("play", () => {
+  const el = audio();
+  el.addEventListener("play", () => {
+    actualizarBotonPlay();
     if (!reproduccion.animacion) bucleResaltado();
   });
-  audio.addEventListener("pause", pararBucle);
-  audio.addEventListener("ended", pararBucle);
-  audio.addEventListener("seeked", resaltar);
-  audio.addEventListener("error", () => {
-    if (!audio.getAttribute("src")) return;
-    audio.hidden = true;
-    $("#reproductor-opciones").hidden = true;
+  el.addEventListener("pause", () => { actualizarBotonPlay(); pararBucle(); });
+  el.addEventListener("ended", () => { actualizarBotonPlay(); pararBucle(); });
+  el.addEventListener("seeked", resaltar);
+  el.addEventListener("loadedmetadata", actualizarReproductor);
+  el.addEventListener("error", () => {
+    if (!el.getAttribute("src")) return;
+    $("#reproductor-principal").hidden = true;
+    $("#reproductor-pie").hidden = true;
     $("#aviso-audio").hidden = false;
   });
 
+  $("#boton-play").addEventListener("click", alternarReproduccion);
+  configurarOndaComoBarra();
+
   $("#velocidad").addEventListener("change", (e) => {
-    audio.playbackRate = audio.defaultPlaybackRate = Number(e.target.value);
+    el.playbackRate = el.defaultPlaybackRate = Number(e.target.value);
   });
 
   // Clic en una palabra o en el tiempo de una línea: escuchar desde ahí
   $("#transcripcion").addEventListener("click", (e) => {
     const destino = e.target.closest(".palabra, .linea-tiempo");
-    if (destino && !audio.hidden) escucharDesde(Number(destino.dataset.inicio));
+    // Sin aviso de formato no compatible = el audio se puede reproducir
+    if (destino && $("#aviso-audio").hidden) {
+      escucharDesde(Number(destino.dataset.inicio));
+    }
   });
 
   document.addEventListener("keydown", (e) => {
-    if ($("#vista-resultado").hidden || audio.hidden) return;
+    if ($("#vista-resultado").hidden || !$("#aviso-audio").hidden) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     // Sin interferir con la escritura de nombres ni con los controles.
     // Los tiempos de línea sí cuentan: tras pulsar uno, Espacio debe pausar
     // y no volver a saltar a ese punto.
-    const control = "input, select, textarea, audio, button:not(.linea-tiempo)";
+    const control = "input, select, textarea, button:not(.linea-tiempo)";
     if (e.target.closest(control)) return;
     if (e.key === " ") {
       e.preventDefault();
@@ -523,42 +776,37 @@ function configurarReproductor() {
     } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
       const salto = e.key === "ArrowLeft" ? -SALTO_TECLADO : SALTO_TECLADO;
-      audio.currentTime = Math.max(0, audio.currentTime + salto);
+      irA(el.currentTime + salto);
     }
   });
 }
 
-function descargar() {
-  const blob = new Blob([textoPlano()], { type: "text/plain;charset=utf-8" });
-  const enlace = crear("a");
-  enlace.href = URL.createObjectURL(blob);
-  enlace.download = estado.archivo.name.replace(/\.[^.]+$/, "") + ".txt";
-  enlace.click();
-  setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
-}
-
-async function copiar() {
-  const boton = $("#boton-copiar");
-  try {
-    await navigator.clipboard.writeText(textoPlano());
-    boton.textContent = "Copiado";
-  } catch {
-    boton.textContent = "No se pudo copiar";
-  }
-  setTimeout(() => { boton.textContent = "Copiar"; }, 1500);
+// Redibuja las ondas al cambiar su tamaño o el tema claro/oscuro
+function configurarRedibujado() {
+  const redibujar = () => {
+    if (!$("#vista-progreso").hidden) dibujarProgreso();
+    if (!$("#vista-resultado").hidden) dibujarResultado();
+  };
+  new ResizeObserver(redibujar).observe(document.body);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    leerColores();
+    redibujar();
+  });
 }
 
 // ----------------------------------------------------------------- inicio
 
 document.addEventListener("DOMContentLoaded", () => {
+  leerColores();
   configurarZona();
   configurarReproductor();
+  configurarRedibujado();
   cargarInfo();
   $("#modelo").addEventListener("change", actualizarAyudaModelo);
   $("#formulario").addEventListener("submit", transcribir);
   $("#boton-volver").addEventListener("click", () => mostrarVista("formulario"));
   $("#boton-nueva").addEventListener("click", () => {
-    $("#audio").pause();
+    audio().pause();
     mostrarVista("formulario");
   });
   $("#boton-descargar").addEventListener("click", descargar);

@@ -30,7 +30,7 @@ No hay tests ni proceso de compilación. Para probar cambios rápido, usa un `au
 
 ## Arquitectura
 
-`ejecutar(entrada, modelo, cpu, rapido, hablantes, avisar)` hace todo el proceso y devuelve una lista de `Intervencion(inicio, fin, hablante, texto, palabras)`. La usan tanto `main()` (CLI) como `servidor.py`. El progreso no se imprime directamente: se comunica con el callback `avisar(fase, mensaje, fraccion)`. `avisar_consola` lo imprime y el servidor lo convierte en eventos. Fases: `preparacion`, `transcripcion`, `segmento`, `diarizacion` y `aviso`. Los pasos que sigue `ejecutar()`:
+`ejecutar(entrada, modelo, cpu, rapido, hablantes, avisar, al_leer_audio)` hace todo el proceso y devuelve una lista de `Intervencion(inicio, fin, hablante, texto, palabras)`. La usan tanto `main()` (CLI) como `servidor.py`. El progreso no se imprime directamente: se comunica con el callback `avisar(fase, mensaje, fraccion)`. `avisar_consola` lo imprime y el servidor lo convierte en eventos. Fases: `preparacion`, `transcripcion`, `segmento`, `diarizacion` y `aviso`. Los pasos que sigue `ejecutar()`:
 
 1. **Decodificar una vez**: `faster_whisper.decode_audio` (usa PyAV, no hace falta ffmpeg) carga `audio.mp4` como un array mono a 16 kHz. El mismo array se pasa a Whisper y a la diarización, así que ambos comparten la misma línea de tiempo.
 2. **Transcribir** (`transcribir`): faster-whisper con `word_timestamps=True` y VAD; devuelve una lista plana de palabras `(inicio, fin, texto)`. La transcripción ocurre al recorrer el generador de segmentos.
@@ -40,10 +40,11 @@ No hay tests ni proceso de compilación. Para probar cambios rápido, usa un `au
 
 Interfaz web (`servidor.py`, FastAPI):
 
-- `GET /api/info` devuelve los modelos y si hay GPU. `POST /api/trabajos` recibe el archivo (multipart) y las opciones, lo guarda en una carpeta temporal (que se borra al terminar) y lo pone en cola. `GET /api/trabajos/{id}/eventos` envía el progreso por Server-Sent Events (`progreso`, `fin` con las intervenciones, o `error`).
+- `GET /api/info` devuelve los modelos y si hay GPU. `POST /api/trabajos` recibe el archivo (multipart) y las opciones, lo guarda en una carpeta temporal (que se borra al terminar) y lo pone en cola. `GET /api/trabajos/{id}/eventos` envía el progreso por Server-Sent Events: `progreso`, `audio` (forma de onda y duración), `fin` con las intervenciones, o `error`.
+- **Forma de onda**: nada más decodificar, `ejecutar()` llama a `al_leer_audio(onda, duracion)`. `onda` son los `PUNTOS_ONDA` (1200) picos que calcula `calcular_onda`, normalizados con el percentil 99. La página los dibuja en un `<canvas>`: durante el proceso muestra el avance de cada pasada y, al terminar, colorea cada tramo según quién habla y sirve de barra de reproducción.
 - Un único hilo (`procesar_cola`) hace las transcripciones de una en una. Cada `Trabajo` guarda en memoria todos sus eventos, así que la página puede reconectarse (`Last-Event-ID`) sin perder ninguno.
 - `cargar_whisper` deja el último modelo en caché (`lru_cache(maxsize=1)`) para no recargarlo en cada petición. Si CUDA falla, se vacía la caché para liberar la GPU.
-- El frontend (`web/index.html`, `app.js`, `estilos.css`) es HTML/JS sin dependencias ni compilación. El renombrado de hablantes y la descarga del `.txt` se hacen en el navegador, sin volver a procesar el audio.
+- El frontend (`web/index.html`, `app.js`, `estilos.css`) es HTML/JS sin dependencias ni compilación. La fuente (Schibsted Grotesk, licencia OFL) está en `web/fuentes/` para que la página funcione sin conexión: no hay que cargar nada de CDN ni de Google Fonts. Los colores son variables CSS en `:root`, con su versión para modo oscuro, y `app.js` las lee para pintar la onda. El renombrado de hablantes y la descarga del `.txt` se hacen en el navegador, sin volver a procesar el audio.
 - **Reproducción con resaltado**: el navegador reproduce el archivo elegido mediante `URL.createObjectURL`, sin volver a pedirlo al servidor. El evento `fin` incluye, para cada intervención, sus `palabras` como `[inicio, fin, texto]` (redondeadas a centésimas en `a_json`). Mientras suena el audio, un bucle con `requestAnimationFrame` (`timeupdate` llega solo unas 4 veces por segundo) busca con búsqueda binaria la palabra y la línea activas.
 - El servidor solo escucha en `127.0.0.1`.
 

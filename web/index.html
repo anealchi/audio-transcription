@@ -4,131 +4,159 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Transcriptor</title>
+  <meta name="description" content="Transcribe en local audios y vídeos en español e indica quién habla en cada momento.">
+  <meta name="theme-color" content="#f1f2f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23151922'/%3E%3Cpath d='M8 14v4M12 10v12M16 7v18M20 11v10M24 14v4' stroke='%23ffb21e' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preload" href="fuentes/schibsted-grotesk.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="estilos.css">
   <script src="app.js" defer></script>
 </head>
 <body>
-  <main class="contenedor">
-    <header class="cabecera">
-      <h1>Transcriptor</h1>
-      <span class="chip" id="dispositivo" title="Dónde se ejecuta Whisper">…</span>
-    </header>
+  <header class="barra-superior">
+    <div class="contenedor barra-superior-interior">
+      <span class="marca">
+        <svg class="marca-icono" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="9"/>
+          <path d="M8 14v4M12 10v12M16 7v18M20 11v10M24 14v4"/>
+        </svg>
+        Transcriptor
+      </span>
+      <span class="estado-equipo" id="dispositivo" title="Dónde se ejecuta Whisper">Comprobando el equipo…</span>
+    </div>
+  </header>
 
+  <main class="contenedor">
     <!-- 1. Elegir archivo y opciones -->
-    <section id="vista-formulario">
-      <form id="formulario" class="tarjeta">
-        <label class="zona" id="zona">
+    <section id="vista-formulario" class="vista">
+      <h1 class="titular">Convierte una conversación en texto, con cada persona identificada.</h1>
+      <p class="entradilla">Todo se procesa en este equipo: el archivo no sale de él.</p>
+
+      <form id="formulario">
+        <label class="deck zona" id="zona">
           <input type="file" id="archivo" accept="audio/*,video/*">
-          <span class="zona-icono" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none"
-                 stroke="currentColor" stroke-width="1.8"
-                 stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>
-            </svg>
+          <span class="zona-linea" aria-hidden="true"></span>
+          <span class="zona-texto">
+            <span class="zona-titulo" id="zona-titulo">Arrastra aquí un audio o vídeo</span>
+            <span class="zona-detalle" id="zona-detalle">O haz clic para elegirlo. Sirven mp4, mp3, wav, m4a y la mayoría de formatos.</span>
           </span>
-          <span class="zona-titulo" id="zona-titulo">Arrastra aquí un audio o vídeo</span>
-          <span class="zona-detalle" id="zona-detalle">o haz clic para elegirlo · mp4, mp3, wav, m4a…</span>
         </label>
 
         <div class="opciones">
-          <label class="campo">
-            <span class="campo-etiqueta">Modelo</span>
+          <div class="campo">
+            <label class="campo-etiqueta" for="modelo">Modelo</label>
             <select id="modelo"></select>
             <small id="modelo-ayuda"></small>
-          </label>
-          <label class="campo">
-            <span class="campo-etiqueta">Personas que hablan</span>
+          </div>
+          <div class="campo">
+            <label class="campo-etiqueta" for="hablantes">Personas que hablan</label>
             <input type="number" id="hablantes" min="1" max="20"
                    inputmode="numeric" placeholder="Detectar automáticamente">
             <small>Si lo sabes, indicarlo mejora la precisión.</small>
-          </label>
+          </div>
         </div>
 
-        <div class="casillas">
-          <label class="casilla">
-            <input type="checkbox" id="rapido">
+        <div class="interruptores">
+          <label class="interruptor">
+            <input type="checkbox" role="switch" id="rapido">
             <span>Modo rápido <small>algo menos preciso</small></span>
           </label>
-          <label class="casilla" id="casilla-cpu">
-            <input type="checkbox" id="cpu">
+          <label class="interruptor" id="casilla-cpu">
+            <input type="checkbox" role="switch" id="cpu">
             <span>Usar solo la CPU</span>
           </label>
         </div>
 
-        <button type="submit" class="boton" id="boton-transcribir" disabled>Transcribir</button>
+        <button type="submit" class="boton boton-grande" id="boton-transcribir" disabled>Transcribir audio</button>
       </form>
     </section>
 
     <!-- 2. Progreso -->
-    <section id="vista-progreso" hidden>
-      <div class="tarjeta">
-        <p class="archivo-actual" id="progreso-archivo"></p>
-        <ol class="pasos" id="pasos">
-          <li data-paso="subida">Subir</li>
-          <li data-paso="transcripcion">Transcribir</li>
-          <li data-paso="diarizacion">Identificar voces</li>
-        </ol>
-        <div class="barra" id="barra" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-          <div class="barra-relleno" id="barra-relleno"></div>
-        </div>
+    <section id="vista-progreso" class="vista" hidden>
+      <h2 class="titulo-archivo" id="progreso-archivo"></h2>
+      <ol class="pasos" id="pasos">
+        <li data-paso="subida">Subir</li>
+        <li data-paso="transcripcion">Transcribir</li>
+        <li data-paso="diarizacion">Identificar voces</li>
+      </ol>
+
+      <div class="deck deck-progreso">
+        <canvas class="onda onda-progreso" id="onda-progreso" role="progressbar"
+                aria-valuemin="0" aria-valuemax="100" aria-label="Progreso"></canvas>
         <div class="estado-linea">
           <span id="estado">Preparando…</span>
           <span class="cronometro" id="cronometro">0:00</span>
         </div>
-        <p class="aviso" id="aviso" hidden></p>
-        <div class="vista-previa" id="vista-previa" aria-live="polite"></div>
-        <div class="error" id="error" hidden>
-          <p id="error-mensaje"></p>
-          <button type="button" class="boton secundario" id="boton-volver">Volver</button>
-        </div>
       </div>
+
+      <p class="aviso" id="aviso" hidden></p>
+      <div class="error" id="error" hidden>
+        <p id="error-mensaje"></p>
+        <button type="button" class="boton boton-secundario" id="boton-volver">Volver al formulario</button>
+      </div>
+      <div class="vista-previa" id="vista-previa" aria-live="polite"></div>
     </section>
 
     <!-- 3. Resultado -->
-    <section id="vista-resultado" hidden>
-      <div class="tarjeta resumen">
+    <section id="vista-resultado" class="vista" hidden>
+      <div class="cabecera-resultado">
         <div>
-          <p class="resumen-titulo" id="resumen-titulo"></p>
+          <h2 class="titulo-archivo" id="resumen-titulo"></h2>
           <p class="resumen-detalle" id="resumen-detalle"></p>
         </div>
         <div class="acciones">
-          <button type="button" class="boton secundario" id="boton-copiar">Copiar</button>
+          <button type="button" class="boton boton-secundario" id="boton-copiar">Copiar texto</button>
           <button type="button" class="boton" id="boton-descargar">Descargar .txt</button>
         </div>
       </div>
 
-      <div class="tarjeta">
-        <h2>Hablantes</h2>
-        <p class="ayuda">Escribe el nombre de cada persona; la transcripción se actualiza al momento.</p>
-        <div class="lista-hablantes" id="lista-hablantes"></div>
-      </div>
-
-      <div class="tarjeta reproductor" id="reproductor">
-        <audio id="audio" controls preload="metadata"></audio>
-        <div class="reproductor-opciones" id="reproductor-opciones">
-          <label class="casilla">
-            Velocidad
-            <select id="velocidad">
-              <option value="0.5">0,5×</option>
-              <option value="0.75">0,75×</option>
-              <option value="1" selected>1×</option>
-              <option value="1.25">1,25×</option>
-              <option value="1.5">1,5×</option>
-              <option value="2">2×</option>
-            </select>
-          </label>
-          <label class="casilla">
-            <input type="checkbox" id="seguir" checked>
-            <span>Seguir el audio</span>
-          </label>
-          <span class="atajos">Clic en una palabra: escuchar desde ahí · <kbd>Espacio</kbd> reproducir/pausar · <kbd>←</kbd> <kbd>→</kbd> 5 s</span>
+      <div class="deck reproductor" id="reproductor">
+        <div class="reproductor-principal" id="reproductor-principal">
+          <button type="button" class="boton-play" id="boton-play" aria-label="Reproducir">
+            <svg class="icono-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"/></svg>
+            <svg class="icono-pausa" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/></svg>
+          </button>
+          <span class="tiempos"><span id="tiempo-actual">00:00</span> <span class="tiempo-total" id="tiempo-total">de 00:00</span></span>
+          <canvas class="onda onda-resultado" id="onda-resultado" tabindex="0" role="slider"
+                  aria-label="Posición del audio" aria-valuemin="0"></canvas>
         </div>
-        <p class="aviso" id="aviso-audio" hidden>El navegador no puede reproducir este formato. La transcripción sigue disponible.</p>
+        <div class="reproductor-pie" id="reproductor-pie">
+          <ul class="leyenda" id="leyenda" aria-label="Hablantes"></ul>
+          <div class="reproductor-ajustes">
+            <label class="ajuste">
+              Velocidad
+              <select id="velocidad">
+                <option value="0.5">0,5×</option>
+                <option value="0.75">0,75×</option>
+                <option value="1" selected>1×</option>
+                <option value="1.25">1,25×</option>
+                <option value="1.5">1,5×</option>
+                <option value="2">2×</option>
+              </select>
+            </label>
+            <label class="interruptor interruptor-deck">
+              <input type="checkbox" role="switch" id="seguir" checked>
+              <span>Seguir el audio</span>
+            </label>
+          </div>
+        </div>
+        <p class="aviso-audio" id="aviso-audio" hidden>El navegador no puede reproducir este formato. La transcripción sigue disponible.</p>
+        <audio id="audio" preload="metadata"></audio>
       </div>
 
-      <div class="tarjeta transcripcion" id="transcripcion"></div>
+      <section class="bloque" aria-labelledby="titulo-hablantes">
+        <h3 id="titulo-hablantes">Nombres de los hablantes</h3>
+        <p class="ayuda">Escribe quién es cada persona y la transcripción se actualiza al momento. Su primera frase te ayuda a reconocerla.</p>
+        <div class="lista-hablantes" id="lista-hablantes"></div>
+      </section>
 
-      <button type="button" class="boton secundario centrado" id="boton-nueva">Nueva transcripción</button>
+      <section class="bloque" aria-labelledby="titulo-transcripcion">
+        <h3 id="titulo-transcripcion">Transcripción</h3>
+        <p class="ayuda">Haz clic en una palabra o en un tiempo para escuchar desde ahí. <kbd>Espacio</kbd> pausa y reanuda; <kbd>←</kbd> y <kbd>→</kbd> mueven el audio 5 segundos.</p>
+        <div class="transcripcion" id="transcripcion"></div>
+      </section>
+
+      <button type="button" class="boton boton-secundario" id="boton-nueva">Transcribir otro archivo</button>
     </section>
   </main>
 </body>
